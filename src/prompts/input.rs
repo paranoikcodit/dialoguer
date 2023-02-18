@@ -291,6 +291,10 @@ where
 
             let mut chars: Vec<char> = Vec::new();
             let mut position = 0;
+
+            #[cfg(feature = "completion")]
+            let mut compl_size = 0;
+
             #[cfg(feature = "history")]
             let mut hist_pos = 0;
 
@@ -337,8 +341,36 @@ where
                         position += 1;
                         let tail: String =
                             iter::once(&chr).chain(chars[position..].iter()).collect();
+
                         term.write_str(&tail)?;
-                        term.move_cursor_left(tail.len() - 1)?;
+
+                        #[cfg(feature = "completion")]
+                        if let Some(completion) = self.completion {
+                            term.move_cursor_right(compl_size)?;
+                            term.clear_chars(compl_size)?;
+
+                            let input = chars[..position].iter().rev().collect::<String>();
+                            let regex =
+                                regex::Regex::new(r"^([a-zA-Z0-9_]+|[^a-zA-Z0-9_\s]+)").unwrap();
+
+                            if let Some(input) = regex.find(&input) {
+                                let word_pos = position - input.end();
+
+                                let input = chars[word_pos..].iter().collect::<String>();
+
+                                if let Some(compl) = completion.get(input.as_str()) {
+                                    let compl = compl.replace(input.as_str(), "");
+
+                                    compl_size = render.completion(&compl)?;
+
+                                    // term.write_str(&compl)?;
+                                    term.move_cursor_left(compl_size)?;
+                                } else {
+                                    compl_size = 0;
+                                }
+                            }
+                        }
+
                         term.flush()?;
                     }
                     Key::ArrowLeft if position > 0 => {
@@ -451,17 +483,28 @@ where
                     #[cfg(feature = "completion")]
                     Key::ArrowRight | Key::Tab => {
                         if let Some(completion) = &self.completion {
-                            let input: String = chars.clone().into_iter().collect();
-                            if let Some(x) = completion.get(&input) {
-                                term.clear_chars(chars.len())?;
-                                chars.clear();
-                                position = 0;
-                                for ch in x.chars() {
-                                    chars.insert(position, ch);
-                                    position += 1;
+                            let input = chars[..position].iter().rev().collect::<String>();
+                            let regex =
+                                regex::Regex::new(r"^([a-zA-Z0-9_]+|[^a-zA-Z0-9_\s]+)").unwrap();
+
+                            if let Some(input) = regex.find(&input) {
+                                let word_pos = position - input.end();
+                                let input = chars[word_pos..].iter().collect::<String>();
+
+                                if let Some(compl) = completion.get(input.as_str()) {
+                                    term.move_cursor_right(compl_size)?;
+                                    term.clear_chars(compl_size)?;
+                                    term.clear_chars(input.len())?;
+                                    chars.drain(word_pos..chars.len());
+
+                                    position = word_pos;
+                                    for ch in compl.chars() {
+                                        chars.insert(position, ch);
+                                        position += 1;
+                                    }
+                                    term.write_str(&compl)?;
+                                    term.flush()?;
                                 }
-                                term.write_str(&x)?;
-                                term.flush()?;
                             }
                         }
                     }

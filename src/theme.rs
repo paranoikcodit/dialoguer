@@ -7,6 +7,12 @@ use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 
 /// Implements a theme for dialoguer.
 pub trait Theme {
+    #[cfg(feature = "completion")]
+    #[inline]
+    fn format_completion(&self, f: &mut dyn fmt::Write, completion: &str) -> fmt::Result {
+        write!(f, "{}", completion)
+    }
+
     /// Formats a prompt.
     #[inline]
     fn format_prompt(&self, f: &mut dyn fmt::Write, prompt: &str) -> fmt::Result {
@@ -222,8 +228,8 @@ pub trait Theme {
         write!(f, "{} ", if active { ">" } else { " " })?;
 
         if highlight_matches {
-            if let Some((_score, indices)) = matcher.fuzzy_indices(text, &search_term) {
-                for (idx, c) in text.chars().into_iter().enumerate() {
+            if let Some((_score, indices)) = matcher.fuzzy_indices(text, search_term) {
+                for (idx, c) in text.chars().enumerate() {
                     if indices.contains(&idx) {
                         write!(f, "{}", style(c).for_stderr().bold())?;
                     } else {
@@ -258,7 +264,7 @@ pub trait Theme {
             write!(f, "{}{}{}", st_head, st_cursor, st_tail)
         } else {
             let cursor = "|".to_string();
-            write!(f, "{}{}", search_term.to_string(), cursor)
+            write!(f, "{}{}", search_term, cursor)
         }
     }
 }
@@ -272,6 +278,8 @@ impl Theme for SimpleTheme {}
 pub struct ColorfulTheme {
     /// The style for default values
     pub defaults_style: Style,
+    #[cfg(feature = "completion")]
+    pub completion_style: Style,
     /// The style for prompt
     pub prompt_style: Style,
     /// Prompt prefix value and style
@@ -320,6 +328,7 @@ impl Default for ColorfulTheme {
     fn default() -> ColorfulTheme {
         ColorfulTheme {
             defaults_style: Style::new().for_stderr().cyan(),
+            completion_style: Style::new().for_stderr().white().bg(console::Color::White),
             prompt_style: Style::new().for_stderr().bold(),
             prompt_prefix: style("?".to_string()).for_stderr().yellow(),
             prompt_suffix: style("›".to_string()).for_stderr().black().bright(),
@@ -347,6 +356,15 @@ impl Default for ColorfulTheme {
 }
 
 impl Theme for ColorfulTheme {
+    #[cfg(feature = "completion")]
+    fn format_completion(&self, f: &mut dyn fmt::Write, completion: &str) -> fmt::Result {
+        if !completion.is_empty() {
+            write!(f, "{}", &self.completion_style.apply_to(completion))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Formats a prompt.
     fn format_prompt(&self, f: &mut dyn fmt::Write, prompt: &str) -> fmt::Result {
         if !prompt.is_empty() {
@@ -636,8 +654,8 @@ impl Theme for ColorfulTheme {
         )?;
 
         if highlight_matches {
-            if let Some((_score, indices)) = matcher.fuzzy_indices(text, &search_term) {
-                for (idx, c) in text.chars().into_iter().enumerate() {
+            if let Some((_score, indices)) = matcher.fuzzy_indices(text, search_term) {
+                for (idx, c) in text.chars().enumerate() {
                     if indices.contains(&idx) {
                         if active {
                             write!(
@@ -649,12 +667,10 @@ impl Theme for ColorfulTheme {
                         } else {
                             write!(f, "{}", self.fuzzy_match_highlight_style.apply_to(c))?;
                         }
+                    } else if active {
+                        write!(f, "{}", self.active_item_style.apply_to(c))?;
                     } else {
-                        if active {
-                            write!(f, "{}", self.active_item_style.apply_to(c))?;
-                        } else {
-                            write!(f, "{}", c)?;
-                        }
+                        write!(f, "{}", c)?;
                     }
                 }
 
@@ -696,13 +712,7 @@ impl Theme for ColorfulTheme {
             )
         } else {
             let cursor = self.fuzzy_cursor_style.apply_to(" ");
-            write!(
-                f,
-                "{} {}{}",
-                &self.prompt_suffix,
-                search_term.to_string(),
-                cursor
-            )
+            write!(f, "{} {}{}", &self.prompt_suffix, search_term, cursor)
         }
     }
 }
@@ -809,6 +819,11 @@ impl<'a> TermThemeRenderer<'a> {
             this.theme
                 .format_fuzzy_select_prompt(buf, prompt, search_term, cursor_pos)
         })
+    }
+
+    #[cfg(feature = "completion")]
+    pub fn completion(&mut self, completion: &str) -> io::Result<usize> {
+        self.write_formatted_str(|this, buf| this.theme.format_completion(buf, completion))
     }
 
     pub fn input_prompt(&mut self, prompt: &str, default: Option<&str>) -> io::Result<usize> {
