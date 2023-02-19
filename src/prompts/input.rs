@@ -493,13 +493,9 @@ where
                                 let input2 = chars[word_pos..].iter().collect::<String>();
 
                                 if let Some(compl) = completion.get(input1.as_str()) {
-                                    // println!("{}", input2.len() - input1.len());
                                     term.move_cursor_right(input2.len() - input1.len())?;
                                     term.clear_chars(input2.len())?;
 
-                                    // term.move_cursor_right(compl_size)?;
-                                    // term.clear_chars(compl_size)?;
-                                    // term.clear_chars(input.len())?;
                                     chars.drain(word_pos..chars.len());
 
                                     position = word_pos;
